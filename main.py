@@ -13,7 +13,8 @@ try:
 except FileNotFoundError:
     profanity_list = []
 
-TOKEN = 'MTIzNDg2NTI4NjYwNDM5MDQ3MQ.GgTNv9.SGNKsjleJPvRq4TFcGpx9YZ66mogd5-22yiwog'
+# токен нужно взять из презентации
+TOKEN = "-"
 
 logger = logging.getLogger('discord')
 logger.setLevel(logging.DEBUG)
@@ -23,12 +24,14 @@ logger.addHandler(handler)
 
 HELP_TEXT = """
 Вы используете бота модератора созданного в рамках проекта яндекс лицей.
-Он умеет вычислять плохие слова и выдавать предупреждения и банны пользователям и выводить курс валют.
+Он умеет вычислять плохие слова и выдавать предупреждения и баны пользователям и выводить курс валют.
 !help - вызов сообщения с помощью пользователю;
 !abso(!absolution) - Обнуление количества нарушений у пользователя. Пример: !abso user_123;
+!unban - Отмена бана пользователя. Пример: !unban user_123
 !prof_list(!profanity_list) - Список плохих слов;
 !add_prof(!add_profanity) - Добавление в список плохого слова. Пример: !add_prof банан;
 !del_prof(!del_profanity) - Удаление запретного слова. Пример: !del_prof банан;
+!show_users - Показывает список пользователей и количество нарушений
 !curr(!currency) - Вывод курса валют. Пример: !curr EUR-RUB
 """
 
@@ -54,13 +57,14 @@ class ProfanityMod(commands.Cog):
         self.infractions = {}
         self.last_message_time = {}
         self.flag = True
-
+        # создание json файла для хранения пользователей
         try:
             with open("infractions.json", "r") as file:
                 self.infractions = json.load(file)
         except FileNotFoundError:
             pass
 
+    # проверка на плохие слова
     async def check_profanity(self, message):
         content = message.content.lower()
         if self.flag:
@@ -73,13 +77,13 @@ class ProfanityMod(commands.Cog):
                         self.infractions[author_id] += 1
                     if self.infractions[author_id] >= 5:
                         guild = message.guild
-                        await guild.ban(message.author, reason="Repeated use of profanity")
+                        await guild.ban(message.author, reason="Неоднократное использование плохихи слов")
                         await message.channel.send(
-                            f"{message.author.mention} has been banned for repeated use of profanity.")
+                            f"{message.author.mention} был забанен за повторное использование плохих слов.")
                         self.infractions[author_id] = 0
                     else:
                         await message.channel.send(
-                            f"{message.author.mention}, watch your language! This is a warning. Infraction count: {self.infractions[author_id]}")
+                            f"{message.author.mention} следите за своим языком! Это предупреждение. Количество нарушений: {self.infractions[author_id]}")
 
                     with open("infractions.json", "w") as file:
                         json.dump(self.infractions, file)
@@ -89,26 +93,44 @@ class ProfanityMod(commands.Cog):
         if not message.author.bot:
             await self.check_profanity(message)
 
+    # отмена блокировки пользовтаеля
+    @commands.command(name="unban")
+    async def unban_user(self, ctx, user: discord.User):
+        if ctx.message.author.guild_permissions.administrator:
+            banned_users = [ban async for ban in ctx.guild.bans()]
+            for ban_entry in banned_users:
+                if user.id == ban_entry.user.id:
+                    await ctx.guild.unban(ban_entry.user)
+                    await ctx.send(f"Пользователь {user.mention} был разбанен.")
+                    return
+                else:
+                    await ctx.send("Пользователь не найден в списке забаненных.")
+        else:
+            await ctx.send("У вас нет прав на выполнение этой команды.")
+
+    # обнуление количества нарушений у пользователей
     @commands.command(name="absolution", aliases=["abso"], help="Обнуление количества нарушений у пользователя")
     async def thank(self, ctx, user: discord.User):
         if ctx.message.author.guild_permissions.administrator:
             user_id = str(user.id)
             if user_id in self.infractions:
                 self.infractions[user_id] = 0
-                await ctx.send(f"Infraction count reset for {user.mention}.")
+                await ctx.send(f"Сброс количества нарушений для {user.mention}.")
             else:
-                await ctx.send("User has no infractions.")
+                await ctx.send("У пользователя нет никаких нарушений.")
         else:
-            await ctx.send("You do not have sufficient permissions to use this command.")
+            await ctx.send("У вас недостаточно прав для использования этой команды.")
 
         with open("infractions.json", "w") as file:
             json.dump(self.infractions, file)
 
+    # вывод списка пользателей
     @commands.command(name="profanity_list", aliases=["prof_list"])
     async def profanity_list(self, ctx):
         await ctx.send("Список плохих слов:")
         await ctx.send(" ,".join(self.profanity_list))
 
+    # добавление новых плохих слов
     @commands.command(name="add_profanity", aliases=["add_prof"])
     async def add_profanity(self, ctx, word: str):
         self.flag = False
@@ -122,6 +144,7 @@ class ProfanityMod(commands.Cog):
                     f.write('\n'.join(profanity_list))
         self.flag = True
 
+    # удаление новых плохих слов
     @commands.command(name="del_profanity", aliases=["del_prof"])
     async def del_profanity(self, ctx, word: str):
         self.flag = False
@@ -135,6 +158,18 @@ class ProfanityMod(commands.Cog):
             await ctx.send(f"Плохое слово `{word}` не найдено в списке.")
         self.flag = True
 
+    # вывод списка поьзовтаелей с нарушениями
+    @commands.command(name="show_users")
+    async def show_users(self, ctx):
+        with open("infractions.json") as f:
+            users = json.load(f)
+
+        await ctx.send("Количество нарушений у пользователей:")
+        for us in users:
+            us_na = await bot.fetch_user(us)
+            await ctx.send(f"{us_na.name} : {users[us]}")
+
+    # загрузка данных о валютах
     def get_currency(self):
         response = requests.get(self.currency_api_url)
         if response.status_code == 200:
@@ -143,6 +178,7 @@ class ProfanityMod(commands.Cog):
         else:
             return 'Произошла ошибка при загрузке курса валют.'
 
+    # вывод курса валют
     @commands.command(name="currency", aliases=["curr"])
     async def profanity_list(self, ctx, options):
         self.api_key = API_KEY
